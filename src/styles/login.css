@@ -1,0 +1,49 @@
+/* Login gate: modal over a blurred dashboard */
+.gated-blur { filter: blur(6px); pointer-events: none; user-select: none; }
+.login-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(10, 12, 18, 0.72);
+  backdrop-filter: blur(2px);
+  animation: login-fade 0.2s ease;
+}
+@keyframes login-fade { from { opacity: 0; } to { opacity: 1; } }
+.login-card {
+  width: 100%; max-width: 420px; max-height: 90vh; overflow: auto;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.login-brand b { display: block; font-size: 0.95rem; }
+.login-brand small { color: var(--muted); font-size: 0.75rem; }
+.login-card h2 { margin: 0 0 6px; font-size: 1.25rem; }
+.login-card .muted { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
+.login-form { display: flex; flex-direction: column; gap: 12px; }
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-field > span { font-size: 0.7rem; letter-spacing: 0.04em; color: var(--muted); }
+.field-error { color: var(--absent); font-size: 0.78rem; font-style: normal; }
+.form-error {
+  margin: 0; padding: 10px 12px; font-size: 0.83rem;
+  border: 1px solid rgba(248, 113, 113, 0.5); border-radius: var(--radius);
+  background: rgba(248, 113, 113, 0.08);
+}
+.btn-primary {
+  height: 42px; padding: 0 16px; font: inherit; font-size: 0.9rem; font-weight: 700;
+  color: #fff; background: var(--accent); border: none;
+  border-radius: var(--radius); cursor: pointer;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { opacity: 0.6; cursor: wait; }
+.login-hint { color: var(--muted); font-size: 0.8rem; margin: 16px 0 0; }
+.login-hint b { color: var(--text); }
+/* Header signed-in state */
+.header-inner { gap: 12px; }
+.header-text { flex: 1; }
+.header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.header-user {
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 0.78rem; color: var(--muted);
+}
+.btn-small { height: 32px; padding: 0 12px; font-size: 0.78rem; }
+@media (max-width: 480px) { .header-user { display: none; } }
