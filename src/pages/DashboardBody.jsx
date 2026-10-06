@@ -23,6 +23,7 @@ const todayISO = () => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
+
 export default function DashboardBody({ centerId }) {
   const { center, user, signOut } = useAuth();
   const [divisions, setDivisions] = useState([]);
@@ -36,11 +37,18 @@ export default function DashboardBody({ centerId }) {
   const [counts, setCounts] = useState({});
   const absKey = `${ABS_BASE}:${centerId ?? "local"}`;
   const [absences, setAbsences] = useState(() => readStored(absKey));
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState("");
   const centerName = center?.name ?? "";
+
+  // Reload stored absences when the center changes (e.g. after login)
   useEffect(() => { setAbsences(readStored(absKey)); }, [absKey]);
+
+  // Persist absences to localStorage on every change — survives page refresh
   useEffect(() => {
     try { localStorage.setItem(absKey, JSON.stringify(absences)); } catch { /* noop */ }
   }, [absences, absKey]);
+
   useEffect(() => {
     let dead = false;
     (async () => {
@@ -58,8 +66,10 @@ export default function DashboardBody({ centerId }) {
     })();
     return () => { dead = true; };
   }, [centerId]);
+
   const key = `${date}|${divisionId}`;
   const absentMap = absences[key] ?? NO_ABS;
+
   useEffect(() => {
     if (!divisionId) { setRoster([]); setSError(""); return; }
     let dead = false;
@@ -74,6 +84,7 @@ export default function DashboardBody({ centerId }) {
     })();
     return () => { dead = true; };
   }, [divisionId, centerId]);
+
   useEffect(() => {
     if (!isSupabaseConfigured || divisions.length === 0) return;
     let dead = false;
@@ -85,50 +96,158 @@ export default function DashboardBody({ centerId }) {
     })();
     return () => { dead = true; };
   }, [divisions, centerId]);
+
   const total = roster.length;
   const absent = roster.filter((s) => absentMap[s.id]).length;
   const present = total - absent;
+
+  // Toggle a single student absent ↔ present
   const toggle = (id) => {
     setAbsences((prev) => {
       const n = { ...(prev[key] ?? {}) };
       if (n[id]) delete n[id]; else n[id] = true;
       return { ...prev, [key]: n };
     });
+    setSubmitMsg("");
   };
-  const reset = () => {
+
+  // Mark every student present (clears the absent map for this key)
+  const markAllPresent = () => {
     setAbsences((prev) => {
-      if (!(key in prev)) return prev;
-      const n = { ...prev }; delete n[key]; return n;
+      const n = { ...prev };
+      delete n[key];
+      return n;
     });
+    setSubmitMsg("");
   };
+
+  // Mark every student absent
+  const markAllAbsent = () => {
+    if (roster.length === 0) return;
+    const allAbsent = {};
+    roster.forEach((s) => { allAbsent[s.id] = true; });
+    setAbsences((prev) => ({ ...prev, [key]: allAbsent }));
+    setSubmitMsg("");
+  };
+
+  // Submit: send current attendance to the backend only on explicit click
+  const submitAttendance = async () => {
+    if (!isSupabaseConfigured) {
+      setSubmitMsg("Supabase is not configured.");
+      return;
+    }
+    if (roster.length === 0) {
+      setSubmitMsg("No students to submit.");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitMsg("");
+    try {
+      const { supabase } = await import("../lib/supabase.js");
+      const records = roster.map((s) => ({
+        student_id: s.id,
+        division_id: divisionId,
+        date: date,
+        status: absentMap[s.id] ? "absent" : "present",
+      }));
+      const { error } = await supabase
+        .from("attendance")
+        .upsert(records, { onConflict: "student_id,date" });
+      if (error) throw new Error(error.message);
+      setSubmitMsg(
+        `✓ Attendance submitted for ${records.length} student${records.length !== 1 ? "s" : ""}.`
+      );
+    } catch (e) {
+      setSubmitMsg(`Error: ${e?.message ?? "Submission failed."}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="attendance-page">
       <AttendanceHeader centerName={centerName} userEmail={user?.email} onSignOut={signOut} />
       <main className="container">
-        <AttendanceFilters date={date} onDateChange={setDate} divisions={divisions}
-          divisionId={divisionId} onDivisionChange={setDivisionId}
-          divisionsLoading={loading} studentCounts={counts} />
+        <AttendanceFilters
+          date={date} onDateChange={setDate}
+          divisions={divisions} divisionId={divisionId} onDivisionChange={setDivisionId}
+          divisionsLoading={loading} studentCounts={counts}
+        />
         {divError && <p className="notice notice--error">{divError}</p>}
         {!loading && divisions.length === 0 && (
-          <p className="notice">No divisions for <b>{centerName || "center"}</b> yet.
-          Add them in Center Portal.</p>
+          <p className="notice">
+            No divisions for <b>{centerName || "center"}</b> yet. Add them in Center Portal.
+          </p>
         )}
         <AttendanceSummary total={total} present={present} absent={absent} />
         {sError && <p className="notice notice--error">{sError}</p>}
-        {absent > 0 && (
-          <div className="attendance-actions">
-            <button type="button" className="btn-secondary" onClick={reset}>
-              Reset to all present
-            </button>
-          </div>
-        )}
         {sLoading ? (
           <div className="panel empty">Loading students…</div>
         ) : (
-          <StudentGrid students={roster} absentMap={absentMap} onToggle={toggle} />
+          <>
+            <StudentGrid students={roster} absentMap={absentMap} onToggle={toggle} />
+            {roster.length > 0 && (
+              <div className="attendance-action-bar">
+                <button
+                  type="button"
+                  className="action-btn action-btn--present"
+                  onClick={markAllPresent}
+                  disabled={submitting}
+                >
+                  All Present
+                </button>
+                <button
+                  type="button"
+                  className="action-btn action-btn--submit"
+                  onClick={submitAttendance}
+                  disabled={submitting}
+                >
+                  {submitting ? "Submitting…" : "Submit"}
+                </button>
+                <button
+                  type="button"
+                  className="action-btn action-btn--absent"
+                  onClick={markAllAbsent}
+                  disabled={submitting}
+                >
+                  All Absent
+                </button>
+              </div>
+            )}
+            {submitMsg && (
+              <p className={`notice${submitMsg.startsWith("✓") ? " notice--success" : " notice--error"}`}>
+                {submitMsg}
+              </p>
+            )}
+            {(() => {
+              const absentees = roster.filter((s) => absentMap[s.id]);
+              if (absentees.length === 0) return null;
+              return (
+                <div className="absentees-panel panel">
+                  <p className="absentees-heading">
+                    Absent <span className="absentees-count">{absentees.length}</span>
+                  </p>
+                  <ol className="absentees-list">
+                    {absentees.map((s) => (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          className="absentees-item"
+                          onClick={() => toggle(s.id)}
+                          title="Click to mark present"
+                        >
+                          <span className="absentees-roll">{s.rollNumber}</span>
+                          <span className="absentees-name">{s.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              );
+            })()}
+          </>
         )}
       </main>
     </div>
   );
 }
-
